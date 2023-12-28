@@ -453,6 +453,156 @@ def plotRegimeAnalysis(asset, weights, returns, regimes, regime_means, regime_co
     else:
         raise ValueError("Invalid value for 'plots'. Use 0 for PDF and violin plots, 1 for scatter plots.")
 
+# %% Combined PDF and Violin Plot.
+
+def plotScorecard(asset, returns, regimes, weights, regime_means, regime_covs, colors, n=1000):
+    """
+    Plots a combined scorecard of the PDF and violin plots for a specified asset's return data.
+    
+    The scorecard includes a PDF plot, visualizing the distribution of returns using a Gaussian mixture model, and violin plots, illustrating the returns distribution across different market regimes. This comprehensive view provides insights into the asset's return behaviors in various market conditions.
+
+    Parameters:
+    - asset: Name of the asset.
+    - returns: DataFrame of asset returns.
+    - regimes: Series indicating the regime for each data point.
+    - weights: Weights of Gaussian mixture components, indexed by regime names.
+    - regime_means: DataFrame of means for each regime.
+    - regime_covs: Dictionary of covariance matrices for each regime.
+    - colors: Series of colors for each regime.
+    - n: Number of points for the PDF plot.
+    """
+    colors = clean_colors(colors, weights.index)
+
+    fig = plt.figure(figsize=(12, 6))  # Adjust the figure size as needed
+    # Adjust gridspec to allocate less space to the table
+    gs = fig.add_gridspec(3, 2, width_ratios=[3, 3], height_ratios=[6, 0, 1], hspace=0)
+
+    ax_violin = fig.add_subplot(gs[0, 0])
+    ax_pdf = fig.add_subplot(gs[:, 1])  # Span the PDF plot across all rows in the second column
+    ax_table = fig.add_subplot(gs[2, 0])  # Allocate a smaller space for the table at the bottom
+
+    # Plotting the violin plots on the left side
+    plotRegimeViolins(returns, asset, regimes, colors, ax_violin, ax_table)
+    plotPdf(asset, weights, returns, regime_means, regime_covs, colors, ax_pdf, n)
+    plt.tight_layout()
+
+    pos = ax_pdf.get_position()
+    ax_pdf.set_position([pos.x0, 0.10, pos.width, 0.8])
+
+    add_date_disclaimer(fig, returns, placement=(0.12, 0.07))
+    plt.show()
+
+
+def plotRegimeViolins(returns, asset, regimes, colors, ax_violin, ax_table):
+    """
+    Plots the returns distribution for a specified asset across different market regimes using violin plots
+    and displays a statistics table for each regime. This version of the function accepts axes for plotting.
+
+    Parameters:
+    - returns (pd.DataFrame): DataFrame containing asset returns.
+    - asset (str): Name of the asset to be analyzed.
+    - regimes (pd.Series): Series indicating the regime for each data point.
+    - colors (dict): Dictionary mapping regime names to color values.
+    - ax_violin (matplotlib.axes.Axes): The axes object for the violin plot.
+    - ax_table (matplotlib.axes.Axes): The axes object for the statistics table.
+    """
+
+    # Filter returns for the specified asset and get unique regime names
+    returns = returns[asset]
+    regime_names = sorted(regimes.unique())
+
+    regime_returns = dict()
+    regime_stats = pd.DataFrame()
+    for regime in regime_names:
+        regime_returns[regime] = returns[regimes == regime]
+        regime_stats[regime] = get_stats(returns[regimes == regime])
+    
+    regime_returns['Full History'] = returns
+    regime_stats['Full History'] = get_stats(returns)
+    regime_names = regime_stats.columns
+
+    # Plotting violin plots
+    parts = ax_violin.violinplot(regime_returns.values(), showmeans=True, showextrema=False, vert=False)
+    parts['cmeans'].set_color('red')
+    parts['cmeans'].set_linestyle('--')
+
+    for body, regime in zip(parts['bodies'], regime_names):
+        color = colors.get(regime)
+        if color is not None:
+            body.set_color(color)
+        body.set_edgecolor('black')
+        body.set_alpha(0.8)
+
+    ticklabels = [f'Regime: {regime}' if not isinstance(regime, str) else regime for regime in regime_names]
+    ax_violin.set_yticks(np.arange(1, len(regime_names) + 1))
+    ax_violin.set_yticklabels(ticklabels)   
+    ax_violin.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
+    ax_violin.grid(True, linestyle='--', axis='x', alpha=0.7)
+    ax_violin.set_title(f'{asset} Returns By Regime')
+
+    # Formatting the statistics table
+    regime_stats = regime_stats.transpose()
+    regime_stats['Observations'] = regime_stats['Observations'].astype(int)
+    regime_stats['Mean'] = (regime_stats['Mean'] * 100).round(2).astype(str) + '%'
+    regime_stats['Vol'] = (regime_stats['Vol'] * 100).round(2).astype(str) + '%'
+    regime_stats['Skew'] = regime_stats['Skew'].round(2)
+    regime_stats['Kurtosis'] = regime_stats['Kurtosis'].round(2)
+    regime_stats = regime_stats.transpose()
+
+    ax_table.axis('off')
+    table = ax_table.table(
+        cellText=regime_stats.values,
+        rowLabels=regime_stats.index,
+        colLabels=ticklabels,
+        cellLoc='right',
+        colLoc='center'
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 2)  
+    # table.set_bbox([0.1, 0.2, 0.8, 0.6])  # bbox=[left, bottom, width, height]
+
+
+def plotPdf(asset, weights, returns, regime_means, regime_covs, colors, ax_pdf, n=1000):
+    """
+    Plots the probability density function (PDF) of an asset's return data on a given axis.
+
+    Parameters:
+    - asset: Name of the asset.
+    - weights: Weights of Gaussian mixture components, indexed by regime names.
+    - returns: DataFrame of asset returns.
+    - regime_means: DataFrame of means for each regime.
+    - regime_covs: Dictionary of covariance matrices for each regime.
+    - colors: Series of colors for each regime.
+    - ax_pdf: The matplotlib axis on which to plot the PDF.
+    - n: Number of points for the PDF plot.
+    """
+    bins = int(0.05 * len(returns))
+    regime_names = weights.index
+
+    # Plot the histogram
+    ax_pdf.hist(returns[asset], bins=bins, density=True, label='Historical Histogram')
+
+    # Plot each Gaussian component of the mixture
+    x = np.linspace(-0.2, 0.2, n)
+    for regime in regime_names:
+        mu = regime_means[regime][asset]
+        sigma = np.sqrt(regime_covs[regime].loc[asset, asset])
+        component_pdf = norm.pdf(x, mu, sigma)
+        ax_pdf.plot(x, component_pdf, label=f'{weights[regime]:.0%} Regime: {regime}', color=colors[regime], linewidth=2)
+
+    # Overlay the combined Gaussian Mixture
+    total_mixture_pdf = [weights[regime] * norm.pdf(x, regime_means[regime][asset], np.sqrt(regime_covs[regime][asset][asset])) for regime in regime_names]
+    ax_pdf.plot(x, np.sum(total_mixture_pdf, axis=0), color='red', linewidth=2, label='Gaussian Mixture', linestyle='--')
+
+    # Formatting the plot
+    ax_pdf.legend(loc='upper right', fontsize='small')
+    ax_pdf.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
+    ax_pdf.set_title(f'Density Analysis: {asset}')
+    ax_pdf.grid(True, linestyle='--', alpha=0.5)
+
+# Example usage
+plotScorecard('SPY', returns, gmm_regimes, gmm_weights, gmm_means, gmm_covs, 'twilight')
 
 
 
