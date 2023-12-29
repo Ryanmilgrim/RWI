@@ -19,7 +19,6 @@ from sklearn.preprocessing import RobustScaler
 
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
-from matplotlib.colors import rgb2hex
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
@@ -29,10 +28,9 @@ import matplotlib.ticker as mticker
 
 years = 20
 freq = 'W'
-assets = ['SPY', 'IJH', 'IJR', 'LQD', 'HYG', 'SPTL', 'GLD']
 
 macro = utility.getMacro(freq=freq, years=years)
-returns = utility.getReturns(assets=assets, years=years, freq=freq)
+returns = utility.getReturns(years=years, freq=freq)
 
 end = min(max(macro.index), max(returns.index))
 start = max(min(macro.index), min(returns.index))
@@ -44,7 +42,7 @@ macro = macro[start:end]
 
 # %% Classify history
 
-def classify_market_regimes(returns, n_components=3, n_init=100, outlier_cutoff=0.01):
+def classify_market_regimes(returns, n_components=3, n_init=100, outlier_cutoff=0.002):
     """
     Classifies historical asset returns into market regimes using Bayesian Gaussian Mixture Models.
 
@@ -98,138 +96,6 @@ gmm, gmm_regimes, gmm_means, gmm_covs, gmm_weights = classify_market_regimes(ret
 
 
 # %% Defining Plot Functions
-
-def plotPdf(asset, weights, returns, regime_means, regime_covs, colors, n=1000):
-    """
-    Plots the probability density function (PDF) of an asset's return data.
-    
-    Parameters:
-    - asset: Name of the asset.
-    - weights: Weights of Gaussian mixture components, indexed by regime names.
-    - returns: DataFrame of asset returns.
-    - regime_means: DataFrame of means for each regime.
-    - regime_covs: Dictionary of covariance matrices for each regime.
-    - colors: Series of colors for each regime.
-    - bins: Number of bins for the histogram.
-    - n: Number of points for the PDF plot.
-    """
-    bins = int(0.05 * len(returns))
-    fig, ax = plt.subplots()
-    regime_names = weights.index
-
-    # Plot the histogram with a lighter color and lower alpha
-    ax.hist(returns[asset], bins=bins, density=True, label='Historical Histogram')
-
-    # Plot each Gaussian component of the mixture
-    x = np.linspace(-0.2, 0.2, n)
-    for regime in regime_names:
-        mu = regime_means[regime][asset]
-        sigma = np.sqrt(regime_covs[regime].loc[asset, asset])
-        component_pdf = norm.pdf(x, mu, sigma)
-
-        # Then plot the colored line on top
-        ax.plot(x, component_pdf, label=f'{weights[regime]:.0%} Regime: {regime}', color=colors[regime], linewidth=2)
-
-    # Overlay the combined Gaussian Mixture with a red line
-    total_mixture_pdf = [
-        weights[regime] * norm.pdf(x, regime_means[regime][asset], np.sqrt(regime_covs[regime][asset][asset]))
-        for regime in regime_names
-    ]
-    ax.plot(x,np.sum(total_mixture_pdf, axis=0), color='red', linewidth=2, label='Gaussian Mixture', linestyle='--')
-
-    set_axis_limits(ax, 'x', returns[asset], (0.0025, 0.9975))
-    add_date_disclaimer(fig, returns)
-
-    # Add the legend and format it
-    ax.legend(loc='upper right', fontsize='small')
-    ax.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
-    ax.set_title(f'Density Analysis: {asset}')
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.show()
-
-
-def plotRegimeViolins(returns, asset, regimes, colors):
-    """
-    Plots the returns distribution for a specified asset across different market regimes using violin plots
-    and displays a statistics table for each regime.
-
-    Parameters:
-    - returns (pd.DataFrame): DataFrame containing asset returns.
-    - asset (str): Name of the asset to be analyzed.
-    - regimes (pd.Series): Series indicating the regime for each data point.
-    - colors (dict): Dictionary mapping regime names to color values.
-    """
-
-    # Filter returns for the specified asset and get unique regime names
-    returns = returns[asset]
-    regime_names = sorted(regimes.unique())
-
-    regime_returns = dict()
-    regime_stats = pd.DataFrame()
-    for regime in regime_names:
-        # Collect returns for each regime
-        regime_returns[regime] = returns[regimes == regime]
-
-        # Calculate statistics for each regime
-        regime_stats[regime] = get_stats(returns[regimes == regime])
-    
-    # Include full history for comparison
-    regime_returns['Full History'] = returns
-    regime_stats['Full History'] = get_stats(returns)
-    regime_names = regime_stats.columns
-
-    # Create violin plot with two subplots: one for violins, one for the table
-    fig, (ax_violin, ax_table) = plt.subplots(2, 1)
-
-    # Plotting violin plots
-    parts = ax_violin.violinplot(regime_returns.values(), showmeans=True, showextrema=False, vert=False)
-    parts['cmeans'].set_color('red')
-    parts['cmeans'].set_linestyle('--')
-    
-    # Set colors for the violin plots
-    for body, regime in zip(parts['bodies'], regime_names):
-        color = colors.get(regime)
-        if color is not None:
-            body.set_color(color)
-        body.set_edgecolor('black')
-        body.set_alpha(0.8)
-
-    # Formatting the violin plot
-    ticklabels = [f'Regime: {regime}' if isinstance(regime, (float, int)) else regime for regime in regime_names]
-    ax_violin.set_yticks(np.arange(1, len(regime_names) + 1))
-    ax_violin.set_yticklabels(ticklabels)   
-    ax_violin.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
-    ax_violin.grid(True, linestyle='--', axis='x', alpha=0.7)
-    ax_violin.set_title(f'{asset} Returns By Regime')
-
-    # Formatting the statistics table
-    regime_stats = regime_stats.transpose()
-    regime_stats['Observations'] = regime_stats['Observations'].astype(int)
-    regime_stats['Mean'] = (regime_stats['Mean'] * 100).round(2).astype(str) + '%'
-    regime_stats['Vol'] = (regime_stats['Vol'] * 100).round(2).astype(str) + '%'
-    regime_stats['Skew'] = regime_stats['Skew'].round(2)
-    regime_stats['Kurtosis'] = regime_stats['Kurtosis'].round(2)
-    regime_stats = regime_stats.transpose()
-
-    # Add a table below the violin plot with colors corresponding to rows
-    ax_table.axis('off')
-    table = ax_table.table(
-        cellText=regime_stats.values,
-        rowLabels=regime_stats.index,
-        colLabels=ticklabels,
-        cellLoc='right',
-        colLoc='center'
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(8)
-
-    # Set limits and add a date disclaimer to the plot
-    set_axis_limits(ax_violin, 'x', returns, (0.0001, 0.9999), scale=1.1)
-    add_date_disclaimer(fig, returns, (0.98, -0.15))
-    
-    # Adjust layout for better presentation
-    plt.tight_layout(h_pad=-15)
-    plt.show()
 
 
 def plotRegimeClusters(returns, regimes, regime_means, regime_covs, assets, colors):
@@ -291,135 +157,13 @@ def plotRegimeClusters(returns, regimes, regime_means, regime_covs, assets, colo
     plt.grid(True, linestyle='--', alpha=0.5)
     ax.set_xlabel(assets[0], fontsize='small')
     ax.set_ylabel(assets[1], fontsize='small')    
-    set_axis_limits(ax, 'x', returns[assets[0]], (0.005, 0.995))
-    set_axis_limits(ax, 'y', returns[assets[1]], (0.005, 0.995))
+    SetAxisLimitsBasedOnQuantiles(ax, 'x', returns[assets[0]], (0.005, 0.995))
+    SetAxisLimitsBasedOnQuantiles(ax, 'y', returns[assets[1]], (0.005, 0.995))
     ax.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=0))
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=0))
     add_date_disclaimer(fig, returns, (0.98, -0.10))
     plt.show()
-
-
-def get_stats(returns):
-    """
-    Calculate basic statistics of a given financial returns series.
-
-    Parameters:
-    - returns (pd.Series): A pandas Series representing the asset returns.
-
-    Returns:
-    - pd.Series: A pandas Series containing the following statistics:
-        - Observations: The number of data points.
-        - Mean: The average return.
-        - Vol: The standard deviation (volatility) of the returns.
-        - Skew: The skewness of the returns.
-        - Kurtosis: The excess kurtosis of the returns (Kurtosis - 3).
-    """
-    return pd.Series({
-        'Observations': len(returns),
-        'Mean': returns.mean(),
-        'Vol': returns.std(),
-        'Skew': returns.skew(),
-        'Kurtosis': returns.kurtosis() + 3  # Excess kurtosis
-    })
-
-
-
-def set_axis_limits(ax, axis, data, quantile_range=(0.002, 0.998), scale=1):
-    """
-    Set the limits of the specified axis based on the quantiles of the data.
-
-    Parameters:
-    - ax (matplotlib.axes.Axes): The Axes object to which the limits are set.
-    - axis (str): Specify 'x' or 'y' to set the corresponding axis limits.
-    - data (np.ndarray or pd.Series): Data used to calculate quantile-based limits.
-    - quantile_range (tuple): A tuple of two floats representing the lower and upper quantiles.
-    - scale (float): A scaling factor to adjust the calculated limits.
-
-    Raises:
-    - ValueError: If the provided axis is neither 'x' nor 'y'.
-    - TypeError: If the data is not a numpy array or pandas Series.
-    """
-    if axis not in ['x', 'y']:
-        raise ValueError("Axis must be either 'x' or 'y'.")
-
-    if not isinstance(data, (np.ndarray, pd.Series)):
-        raise TypeError("Data must be either a numpy array or a pandas Series.")
-
-    lower_quantile, upper_quantile = quantile_range
-    lower_limit, upper_limit = data.quantile([lower_quantile, upper_quantile])
-    limit = max(abs(lower_limit), abs(upper_limit)) * scale
-
-    if axis == 'x':
-        ax.set_xlim(-limit, limit)
-    else:
-        ax.set_ylim(-limit, limit)
-
-
-
-def clean_colors(colors, regimes=None):
-    """
-    Process and standardize the color input for plotting regimes.
-
-    This function handles two types of color inputs: a dictionary mapping regimes to colors,
-    or a string representing a Matplotlib colormap. It returns a standardized pandas Series
-    of colors indexed by regime names.
-
-    Parameters:
-    - colors (str or dict): A string representing a Matplotlib colormap name or a dictionary mapping regimes to colors.
-    - regimes (pd.Series, optional): A pandas Series of regimes. Required if colors is a colormap name.
-
-    Returns:
-    - pd.Series: A pandas Series where the index represents regime names and values are color codes.
-
-    Raises:
-    - TypeError: If 'colors' is neither a string nor a dictionary.
-    - ValueError: If 'colors' is a colormap name but 'regimes' is not provided.
-    """
-    if isinstance(colors, dict):
-        return pd.Series(colors)
-
-    elif isinstance(colors, str):
-        if regimes is None:
-            raise ValueError("When 'colors' is a colormap name, 'regimes' must be provided.")
-
-        # Updated method for accessing colormaps
-        colormap = plt.colormaps[colors]
-        unique_regimes = regimes.unique()
-        color_values = [rgb2hex(colormap(i)) for i in np.linspace(0.2, 0.8, len(unique_regimes))]
-        return pd.Series(color_values, index=unique_regimes)
-
-    else:
-        raise TypeError("The 'colors' parameter must be either a dictionary or a colormap name (string).")
-
-
-
-def add_date_disclaimer(fig, returns, placement=(0.98, 0.02), fontsize='x-small'):
-    """
-    Adds a date disclaimer to a matplotlib figure, indicating the latest date of the data.
-
-    The function is particularly useful in financial data visualizations where indicating
-    the 'as of' date is essential for contextualizing the analysis.
-
-    Parameters:
-    - fig (matplotlib.figure.Figure): The matplotlib figure to which the disclaimer is to be added.
-    - returns (pd.DataFrame or pd.Series): A pandas data structure with a datetime index.
-    - placement (tuple): Coordinates (x, y) for the location of the disclaimer in the figure space.
-                         Values should be in the range [0, 1], with (0, 0) being the bottom left corner.
-    - fontsize (str): The font size of the disclaimer text. Acceptable values include standard
-                      matplotlib font sizes like 'small', 'medium', 'large', 'x-small', etc.
-
-    Note:
-    - The function assumes the latest date in the 'returns' data is the date of interest and formats
-      it in a 'Month Day, Year' format for display.
-    """
-    last_period = pd.Period(returns.index[-1], freq=returns.index.freq)
-    date_disclaimer = last_period.end_time.strftime('%B %d, %Y')
-    fig.text(
-        placement[0], placement[1], f'As Of: {date_disclaimer}', 
-        horizontalalignment='right', verticalalignment='bottom', 
-        fontsize=fontsize, transform=fig.transFigure
-    )
-
+    
 
 def plotRegimeAnalysis(asset, weights, returns, regimes, regime_means, regime_covs, colors='viridis', plots=0):
     """
@@ -441,7 +185,7 @@ def plotRegimeAnalysis(asset, weights, returns, regimes, regime_means, regime_co
     Raises:
     - ValueError: If 'plots' parameter is not 0 or 1.
     """
-    colors = clean_colors(colors, regimes)
+    colors = CleanColors(colors, regimes)
 
     if plots == 0:
         for asset in returns.columns:
@@ -452,157 +196,6 @@ def plotRegimeAnalysis(asset, weights, returns, regimes, regime_means, regime_co
             plotRegimeClusters(returns, regimes, regime_means, regime_covs, [x_asset, asset], colors)
     else:
         raise ValueError("Invalid value for 'plots'. Use 0 for PDF and violin plots, 1 for scatter plots.")
-
-# %% Combined PDF and Violin Plot.
-
-def plotScorecard(asset, returns, regimes, weights, regime_means, regime_covs, colors, n=1000):
-    """
-    Plots a combined scorecard of the PDF and violin plots for a specified asset's return data.
-    
-    The scorecard includes a PDF plot, visualizing the distribution of returns using a Gaussian mixture model, and violin plots, illustrating the returns distribution across different market regimes. This comprehensive view provides insights into the asset's return behaviors in various market conditions.
-
-    Parameters:
-    - asset: Name of the asset.
-    - returns: DataFrame of asset returns.
-    - regimes: Series indicating the regime for each data point.
-    - weights: Weights of Gaussian mixture components, indexed by regime names.
-    - regime_means: DataFrame of means for each regime.
-    - regime_covs: Dictionary of covariance matrices for each regime.
-    - colors: Series of colors for each regime.
-    - n: Number of points for the PDF plot.
-    """
-    colors = clean_colors(colors, weights.index)
-
-    fig = plt.figure(figsize=(12, 6))  # Adjust the figure size as needed
-    # Adjust gridspec to allocate less space to the table
-    gs = fig.add_gridspec(3, 2, width_ratios=[3, 3], height_ratios=[6, 0, 1], hspace=0)
-
-    ax_violin = fig.add_subplot(gs[0, 0])
-    ax_pdf = fig.add_subplot(gs[:, 1])  # Span the PDF plot across all rows in the second column
-    ax_table = fig.add_subplot(gs[2, 0])  # Allocate a smaller space for the table at the bottom
-
-    # Plotting the violin plots on the left side
-    plotRegimeViolins(returns, asset, regimes, colors, ax_violin, ax_table)
-    plotPdf(asset, weights, returns, regime_means, regime_covs, colors, ax_pdf, n)
-    plt.tight_layout()
-
-    pos = ax_pdf.get_position()
-    ax_pdf.set_position([pos.x0, 0.10, pos.width, 0.8])
-
-    add_date_disclaimer(fig, returns, placement=(0.12, 0.07))
-    plt.show()
-
-
-def plotRegimeViolins(returns, asset, regimes, colors, ax_violin, ax_table):
-    """
-    Plots the returns distribution for a specified asset across different market regimes using violin plots
-    and displays a statistics table for each regime. This version of the function accepts axes for plotting.
-
-    Parameters:
-    - returns (pd.DataFrame): DataFrame containing asset returns.
-    - asset (str): Name of the asset to be analyzed.
-    - regimes (pd.Series): Series indicating the regime for each data point.
-    - colors (dict): Dictionary mapping regime names to color values.
-    - ax_violin (matplotlib.axes.Axes): The axes object for the violin plot.
-    - ax_table (matplotlib.axes.Axes): The axes object for the statistics table.
-    """
-
-    # Filter returns for the specified asset and get unique regime names
-    returns = returns[asset]
-    regime_names = sorted(regimes.unique())
-
-    regime_returns = dict()
-    regime_stats = pd.DataFrame()
-    for regime in regime_names:
-        regime_returns[regime] = returns[regimes == regime]
-        regime_stats[regime] = get_stats(returns[regimes == regime])
-    
-    regime_returns['Full History'] = returns
-    regime_stats['Full History'] = get_stats(returns)
-    regime_names = regime_stats.columns
-
-    # Plotting violin plots
-    parts = ax_violin.violinplot(regime_returns.values(), showmeans=True, showextrema=False, vert=False)
-    parts['cmeans'].set_color('red')
-    parts['cmeans'].set_linestyle('--')
-
-    for body, regime in zip(parts['bodies'], regime_names):
-        color = colors.get(regime)
-        if color is not None:
-            body.set_color(color)
-        body.set_edgecolor('black')
-        body.set_alpha(0.8)
-
-    ticklabels = [f'Regime: {regime}' if not isinstance(regime, str) else regime for regime in regime_names]
-    ax_violin.set_yticks(np.arange(1, len(regime_names) + 1))
-    ax_violin.set_yticklabels(ticklabels)   
-    ax_violin.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
-    ax_violin.grid(True, linestyle='--', axis='x', alpha=0.7)
-    ax_violin.set_title(f'{asset} Returns By Regime')
-
-    # Formatting the statistics table
-    regime_stats = regime_stats.transpose()
-    regime_stats['Observations'] = regime_stats['Observations'].astype(int)
-    regime_stats['Mean'] = (regime_stats['Mean'] * 100).round(2).astype(str) + '%'
-    regime_stats['Vol'] = (regime_stats['Vol'] * 100).round(2).astype(str) + '%'
-    regime_stats['Skew'] = regime_stats['Skew'].round(2)
-    regime_stats['Kurtosis'] = regime_stats['Kurtosis'].round(2)
-    regime_stats = regime_stats.transpose()
-
-    ax_table.axis('off')
-    table = ax_table.table(
-        cellText=regime_stats.values,
-        rowLabels=regime_stats.index,
-        colLabels=ticklabels,
-        cellLoc='right',
-        colLoc='center'
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 2)  
-    # table.set_bbox([0.1, 0.2, 0.8, 0.6])  # bbox=[left, bottom, width, height]
-
-
-def plotPdf(asset, weights, returns, regime_means, regime_covs, colors, ax_pdf, n=1000):
-    """
-    Plots the probability density function (PDF) of an asset's return data on a given axis.
-
-    Parameters:
-    - asset: Name of the asset.
-    - weights: Weights of Gaussian mixture components, indexed by regime names.
-    - returns: DataFrame of asset returns.
-    - regime_means: DataFrame of means for each regime.
-    - regime_covs: Dictionary of covariance matrices for each regime.
-    - colors: Series of colors for each regime.
-    - ax_pdf: The matplotlib axis on which to plot the PDF.
-    - n: Number of points for the PDF plot.
-    """
-    bins = int(0.05 * len(returns))
-    regime_names = weights.index
-
-    # Plot the histogram
-    ax_pdf.hist(returns[asset], bins=bins, density=True, label='Historical Histogram')
-
-    # Plot each Gaussian component of the mixture
-    x = np.linspace(-0.2, 0.2, n)
-    for regime in regime_names:
-        mu = regime_means[regime][asset]
-        sigma = np.sqrt(regime_covs[regime].loc[asset, asset])
-        component_pdf = norm.pdf(x, mu, sigma)
-        ax_pdf.plot(x, component_pdf, label=f'{weights[regime]:.0%} Regime: {regime}', color=colors[regime], linewidth=2)
-
-    # Overlay the combined Gaussian Mixture
-    total_mixture_pdf = [weights[regime] * norm.pdf(x, regime_means[regime][asset], np.sqrt(regime_covs[regime][asset][asset])) for regime in regime_names]
-    ax_pdf.plot(x, np.sum(total_mixture_pdf, axis=0), color='red', linewidth=2, label='Gaussian Mixture', linestyle='--')
-
-    # Formatting the plot
-    ax_pdf.legend(loc='upper right', fontsize='small')
-    ax_pdf.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=1))
-    ax_pdf.set_title(f'Density Analysis: {asset}')
-    ax_pdf.grid(True, linestyle='--', alpha=0.5)
-
-# Example usage
-plotScorecard('SPY', returns, gmm_regimes, gmm_weights, gmm_means, gmm_covs, 'twilight')
 
 
 
@@ -729,7 +322,7 @@ def plot_predicted_probabilities(predictions, actual_regimes, colors):
 
     # Plotting predicted probabilities
     dates = predictions.index.end_time.date
-    colors = clean_colors(colors, actual_regimes)
+    colors = CleanColors(colors, actual_regimes)
     ax.stackplot(
         dates,
         predictions.transpose().values,

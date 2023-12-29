@@ -8,27 +8,8 @@ import pandas as pd
 import yfinance as yf
 import pandas_datareader as pdr
 from datetime import date, timedelta
-import matplotlib.pyplot as plt
 
-
-# The dictionary for data transformation methods
-monthly_macro = {
-    'PCE': { # Personal Consumption
-        'pct_change': {'periods': 3}
-    },
-    'INDPRO': { # Industrial Production
-        'pct_change': {'periods': 3} 
-    },
-    'BOPGSTB': {  # Trade Balance
-        'pct_change': {'periods': 3}
-    },
-    'VIXCLS': {  # VIX - CBOE Volatility Index
-        'copy': {}  # Current level of VIX
-    },
-    'BAMLH0A0HYM2': {  # Option-Adjusted Spread (OAS)
-        'copy': {}  # Current level of OAS
-    }
-}
+# %% Data Collection
 
 weekly_macro = {
     'WM2NS': {  # M2 Money Supply
@@ -55,13 +36,13 @@ weekly_macro = {
 }
 
 
-def getReturns(assets, years=15, freq='B', end_date=None):
+def getReturns(assets=None, years=15, freq='B', end_date=None):
     """
     Fetches and calculates stock returns for a specified number of years back from a given end date,
     resampled according to a specified frequency, using ticker symbols from a CSV file.
 
     Parameters:
-    assets (list): List of ETFs to provide the yfinance api.
+    assets (list): List of ETFs to provide the yfinance api. If None a list of default assets is used.
     years (float): Number of years back from the end date for data.
     freq (str): 'B' for business days or 'M' for monthly returns. Defaults to 'B'.
     end_date (str, optional): End date for data, defaults to today's date if not provided.
@@ -70,6 +51,9 @@ def getReturns(assets, years=15, freq='B', end_date=None):
     DataFrame of resampled returns
     """
 
+    if assets is None:
+        assets = ['SPY', 'IJH', 'IJR', 'LQD', 'HYG', 'SPTL', 'GLD']
+
     if end_date is None:
         end_date = date.today()
     start_date = end_date - timedelta(days=365.25 * years)
@@ -77,25 +61,6 @@ def getReturns(assets, years=15, freq='B', end_date=None):
     prices = yf.download(assets, start=start_date, end=end_date)['Adj Close']
     returns = prices.interpolate().resample(freq).last().pct_change().to_period().dropna()
     return returns[returns.index.end_time.date < date.today()][assets]
-
-
-
-def pca(df, thresh_hold=0.7):
-    """
-    Performs PCA using NumPy's eig method on a DataFrame and returns the number of components 
-    needed to reach a specified variance threshold.
-
-    Parameters:
-    df (pd.DataFrame): Input DataFrame.
-    thresh_hold (float): Variance threshold for determining the number of components.
-
-    Returns:
-    int: Number of principal components required to achieve the variance threshold.
-    """
-
-    eigenvalues, eigenvectors = np.linalg.eig(df.cov())
-    explained_variance = eigenvalues.cumsum() / sum(eigenvalues)
-    return sum(explained_variance < thresh_hold)
 
 
 def getMacro(macro=weekly_macro, freq='M', years=40, end_date=None):
@@ -135,6 +100,34 @@ def getMacro(macro=weekly_macro, freq='M', years=40, end_date=None):
         data[ticker] = timeseries
     return data.dropna()
 
+
+# %% Calculations
+
+
+def CalculateReturnStatistics(returns):
+    """
+    Calculate basic statistics of a given financial returns series.
+
+    Parameters:
+    - returns (pd.Series): A pandas Series representing the asset returns.
+
+    Returns:
+    - pd.Series: A pandas Series containing the following statistics:
+        - Observations: The number of data points.
+        - Mean: The average return.
+        - Vol: The standard deviation (volatility) of the returns.
+        - Skew: The skewness of the returns.
+        - Kurtosis: The excess kurtosis of the returns (Kurtosis - 3).
+    """
+    return pd.Series({
+        'Observations': len(returns),
+        'Mean': returns.mean(),
+        'Vol': returns.std(),
+        'Skew': returns.skew(),
+        'Kurtosis': returns.kurtosis() + 3  # Excess kurtosis
+    })
+
+
 def cov2cor(cov):
     """This does the thing"""
     vol = pd.Series(np.diag(cov) ** 0.5, cov.index)
@@ -143,8 +136,3 @@ def cov2cor(cov):
     return vol, cor
 
 
-if __name__ == '__main__':
-    data = getMacro(freq='W')
-    for col in data.columns:
-        data[col].plot(title=col)
-        plt.show()
