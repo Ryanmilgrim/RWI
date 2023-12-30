@@ -1,16 +1,39 @@
-"""
-Created on Thu Dec 28 21:15:31 2023
+__doc__ = """
+Created on Sat Dec 16 01:57:12 2023
 
 @author: Ryan Milgrim, CFA
+
+Plots Module for Financial Data Visualization
+
+- PlotAllAssetsPdf:
+    Generates a grid of subplots, each displaying the probability density function (PDF)
+    for an individual asset in the 'returns' DataFrame. It visualizes the return distributions and regime
+    classifications for all assets using Gaussian Mixture Models.
+
+- plotAssetAnalysis:
+    Creates a comprehensive plot for each specified asset. This function combines a
+    violin plot, a statistics table, and a PDF plot, providing an in-depth analysis of each asset's
+    performance in varying market conditions.
+
+- plotRegimeMatrix:
+    Constructs an NxN correlation matrix plot for asset comparisons under different
+    market regimes. Each off-diagonal cell represents a cluster plot for a pair of assets, and the
+    diagonal cells show the PDF for each individual asset.
+
+These functions are designed for visualizing the analysis of the main file. 
+Please call help() on individual functions for parameter details.
 """
 
 import numpy as np
 import pandas as pd
+
 from scipy.stats import norm
-
-
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.gridspec as gridspec
+from matplotlib.patches import Ellipse
+from matplotlib.lines import Line2D
+
 
 import utility
 
@@ -18,7 +41,7 @@ import utility
 # %% Main Plot Functions
 
 
-def PlotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors, n=1000):
+def PlotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors=None, n=1000):
     """
     Plots the probability density functions for all assets in the returns DataFrame.
 
@@ -27,7 +50,7 @@ def PlotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors, n=1000
     - weights (pd.Series): Weights of Gaussian mixture components, indexed by regime names.
     - regime_means (pd.DataFrame): DataFrame of means for each regime.
     - regime_covs (dict): Dictionary of covariance matrices for each regime.
-    - colors (dict): Dictionary of colors for each regime.
+    - colors (dict or str): Dictionary of colors for each regime or a color map string.
     - n (int): Number of points for the PDF plot. Default is 1000.
 
     Creates a grid of subplots with one subplot per asset, displaying the PDF for each.
@@ -35,6 +58,7 @@ def PlotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors, n=1000
     num_assets = len(returns.columns)
     num_rows = int(np.ceil(np.sqrt(num_assets)))
     num_cols = int(np.ceil(num_assets / num_rows))
+    colors = CleanColors(colors, weights.index)
 
     fig, axs = plt.subplots(num_rows, num_cols, figsize=(num_cols * 5, num_rows * 4))
 
@@ -50,16 +74,101 @@ def PlotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors, n=1000
     plt.show()
 
 
+def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colors=None):
+    """
+    Creates a combined plot for each asset including a violin plot, a stats table, and a PDF plot.
+
+    Parameters:
+    - returns (pd.DataFrame): DataFrame containing asset returns.
+    - weights (pd.Series): Weights of the regimes in the GMM, indexed by regime names.
+    - regime_means (pd.DataFrame): Mean returns for each regime in the GMM.
+    - regime_covs (dict): Covariance matrices for each regime in the GMM.
+    - regimes (pd.Series): Series indicating the regime for each data point.
+    - colors (dict or str): Dictionary of colors for each regime or a color map string.
+    """
+    colors = CleanColors(colors, weights.index)
+    for asset in returns.columns:
+        fig = plt.figure(figsize=(12, 6))
+        gs = gridspec.GridSpec(2, 2, height_ratios=[1, 1], width_ratios=[1, 1])
+
+        ax_violin = fig.add_subplot(gs[0, 0])
+        ax_table = fig.add_subplot(gs[1, 0])
+        ax_pdf = fig.add_subplot(gs[:, 1])
+
+        # Plot the violin plot
+        plotRegimeViolins(ax_violin, returns, asset, regimes, colors)
+
+        # Plot the stats table
+        plotRegimeStatsTable(ax_table, returns, asset, regimes)
+
+        # Plot the PDF plot
+        PlotPdf(ax_pdf, asset, weights, returns, regime_means, regime_covs, colors)
+
+        AddDateDisclaimerToAx(ax_pdf, returns,placement=(0.98, -0.08))
+        
+        plt.tight_layout()
+        plt.suptitle(f'{asset} - Returns by Regime', fontsize=20, y=1.03)
+
+        plt.show()
+
+
+def plotRegimeMatrix(returns, regimes, weights, regime_means, regime_covs, colors=None, assets=None):
+    """
+    Creates an NxB correlation matrix by regime. Each cell in the grid represents a cluster plot for a pair of assets,
+    and the diagonal cells show the PDF plot for each asset.
+
+    Parameters:
+    - returns (pd.DataFrame): DataFrame containing asset returns.
+    - regimes (pd.Series): Series indicating the regime for each data point.
+    - weights (pd.Series): Weights of the regimes in the GMM, indexed by regime names.
+    - regime_means (pd.DataFrame): Mean returns for each regime in the GMM.
+    - regime_covs (dict): Covariance matrices for each regime in the GMM.
+    - colors (dict or str): Dictionary of colors for each regime or a color map string.
+    - assets (list, optional): List of asset names to be analyzed. If None, use all columns in returns.
+    """
+    colors = CleanColors(colors, weights.index)
+    if assets is None:
+        assets = returns.columns
+    n = len(assets)
+    fig, axs = plt.subplots(n, n, figsize=(20, 20))
+
+    for i in range(n):
+        for j in range(n):
+            ax = axs[i, j]
+            if i == j:
+                # Diagonal - Plot PDF
+                PlotPdf(ax, assets[i], weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=False)
+            else:
+                # Off-diagonal - Plot regime clusters
+                plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, [assets[i], assets[j]], colors, show_labels=False)
+
+            if j == 0:
+                ax.set_ylabel(assets[i], fontsize=30)
+            if i == 0:
+                ax.set_title(assets[j], fontsize=30)
+
+    # Common settings for all subplots
+    # for ax in axs.flat:
+    #     ax.label_outer()  # Hide x and y labels not on the edge
+
+    # Set a super title for the figure
+    fig.suptitle('Regime Correlation Matrix', fontsize=48, y=1.002)
+
+    # Creating a single legend for the entire figure
+    handles = [Line2D([0], [0], markersize=15, color=colors[regime], marker='o', linestyle='', label=f'Regime: {regime}') for regime in np.unique(regimes)]
+    fig.legend(handles=handles, loc='lower center', ncol=len(np.unique(regimes)), bbox_to_anchor=(0.5, -0.05), fontsize=30)
+
+    plt.tight_layout()
+    plt.show()
+
+
+
 # %% Ax Plot Functions
 
 
-def PlotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=1000):
+def PlotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=True):
     """
     Visualizes the distribution of an asset's returns using a histogram and Gaussian Mixture Model (GMM).
-
-    This function plots a histogram of the asset's returns and overlays the probability density functions
-    (PDFs) of each identified market regime. The regimes are modeled as components of a Gaussian Mixture Model,
-    with each component's contribution weighted by its respective weight in the mixture.
 
     Parameters:
     - ax (matplotlib.axes.Axes): Axes object for plotting.
@@ -70,9 +179,7 @@ def PlotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=10
     - regime_covs (dict): Covariance matrices for each regime in the GMM.
     - colors (dict): Color mapping for each regime.
     - n (int): Number of points to use in plotting the PDFs. Default is 1000.
-
-    The function plots the empirical distribution of returns as a histogram and overlays the PDFs
-    of each regime's Gaussian component, along with the combined weighted mixture as a red dashed line.
+    - show_labels (bool): If True, show the axis labels, legend, and title. Default is True.
     """
     bins = int(0.05 * len(returns))
     regime_names = weights.index
@@ -89,20 +196,30 @@ def PlotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=10
         mu = regime_means[regime][asset]
         sigma = np.sqrt(regime_covs[regime].loc[asset, asset])
         component_pdf = norm.pdf(x, mu, sigma)
-        ax.plot(x, component_pdf, label=f'{regime} ({weights[regime]:.0%})', color=colors[regime], linewidth=2)
+        ax.plot(x, component_pdf, color=colors[regime], linewidth=2)
         
         # Add the weighted component to the total mixture
         total_mixture_pdf += weights[regime] * component_pdf
 
     # Plot the combined Gaussian Mixture
-    ax.plot(x, total_mixture_pdf, color='red', linewidth=2, linestyle='--', label='Gaussian Mixture')
-
-    # Formatting the plot
-    ax.set_yticklabels([])
+    ax.plot(x, total_mixture_pdf, color='red', linewidth=2, linestyle='--')
     SetAxisLimitsBasedOnQuantiles(ax, 'x', returns[asset], formatAsPercent=True)
-    ax.legend(loc='upper right', fontsize='x-small', title=f'Density Analysis: {asset}')
+
+    if show_labels:
+        # Add labels and legend if show_labels is True
+        for regime in regime_names:
+            ax.plot([], [], label=f'{regime} ({weights[regime]:.0%})', color=colors[regime])
+        ax.set_title(f'Density Analysis: {asset}')
+        ax.legend(loc='upper right', fontsize='small')
+        ReformatLegendLabels(ax)
+    else:
+        # Remove axis labels and legend if show_labels is False
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+
+    # Common formatting
     ax.grid(True, linestyle='--', alpha=0.8)
-    ReformatLegendLabels(ax)
+
 
 
 def plotRegimeViolins(ax, returns, asset, regimes, colors):
@@ -150,7 +267,6 @@ def plotRegimeViolins(ax, returns, asset, regimes, colors):
 
     # Add grid, title, and adjust layout
     ax.grid(True, linestyle='--', alpha=0.7)
-    ax.set_title(f'{asset} - Returns by Regime')
 
 
 def plotRegimeStatsTable(ax, returns, asset, regimes):
@@ -169,36 +285,95 @@ def plotRegimeStatsTable(ax, returns, asset, regimes):
     regime_names = sorted(regimes.unique())
 
     # Calculate statistics for each regime
-    regime_stats = pd.DataFrame({regime: utility.CalculateReturnStatistics(asset_returns[regimes == regime]) for regime in regime_names})
+    stats = pd.DataFrame({regime: utility.CalculateReturnStatistics(asset_returns[regimes == regime]) for regime in regime_names})
     
     # Include full history for comparison
-    regime_stats['Full History'] = utility.CalculateReturnStatistics(asset_returns)
-    regime_stats = regime_stats.transpose()
+    stats['Full History'] = utility.CalculateReturnStatistics(asset_returns)
+    stats = stats.transpose()[::-1]
 
     # Formatting the statistics table
-    regime_stats['Observations'] = regime_stats['Observations'].astype(int)
-    regime_stats['Mean'] = (regime_stats['Mean'] * 100).round(2).astype(str) + '%'
-    regime_stats['Vol'] = (regime_stats['Vol'] * 100).round(2).astype(str) + '%'
-    regime_stats['Skew'] = regime_stats['Skew'].round(2)
-    regime_stats['Kurtosis'] = regime_stats['Kurtosis'].round(2)
+    stats['Observations'] = stats['Observations'].astype(int)
+    stats['Mean'] = (stats['Mean'] * 100).round(2).astype(str) + '%'
+    stats['Vol'] = (stats['Vol'] * 100).round(2).astype(str) + '%'
+    stats['Skew'] = stats['Skew'].round(2)
+    stats['Kurtosis'] = stats['Kurtosis'].round(2)
 
     # Add the table to the provided axes
     ax.axis('off')
-    table = ax.table(cellText=regime_stats.values,
-                     rowLabels=regime_stats.index,
-                     colLabels=regime_stats.columns,
+    stats.index = [f'Regime: {regime}' if not isinstance(regime, str) else regime for regime in stats.index]
+    table = ax.table(cellText=stats.values,
+                     rowLabels=stats.index,
+                     colLabels=stats.columns,
                      cellLoc='center', rowLoc='center', loc='center')
     table.auto_set_font_size(False)
-    table.set_fontsize(8)
-    table.scale(0.85, 2.5)  # Adjust scale as needed
+    table.set_fontsize(10)
+    table.scale(0.95, 3)
 
-    AddDateDisclaimerToAx(ax, returns, (0.95, 0.05))
+
+def plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, assets, colors, show_labels=True):
+    """
+    Creates a scatter plot with regime clusters overlaid for a pair of assets on a given axis.
+
+    Parameters:
+    - ax (matplotlib.axes.Axes): The axes object where the plot will be drawn.
+    - returns (pd.DataFrame): DataFrame containing return data for assets.
+    - regimes (pd.Series): Series indicating the regime for each data point.
+    - regime_means (pd.DataFrame): DataFrame of mean vectors for each regime.
+    - regime_covs (dict): Dictionary of covariance matrices for each regime.
+    - assets (list): List of two asset names to be plotted.
+    - colors (dict): Dictionary of colors for each regime.
+    - show_labels (bool): If True, show the legend and axis labels. Default is True.
+    """
+    if len(assets) != 2:
+        raise ValueError("Assets parameter must be a list of two asset names.")
+
+    regime_names = np.unique(regimes)
+
+    for regime in regime_names:
+        label_data = returns[regimes == regime][assets]
+        ax.scatter(label_data[assets[0]], label_data[assets[1]], color=colors[regime], s=2)
+
+        cov_matrix = regime_covs[regime].loc[assets, assets].values
+        mean_vector = regime_means[regime][assets].values
+        eigenvalues, eigenvectors = np.linalg.eig(cov_matrix)
+        angle = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
+        width, height = 2 * np.sqrt(eigenvalues)
+
+        ax.add_patch(Ellipse(
+            xy=mean_vector, 
+            width=width, 
+            height=height, 
+            angle=np.degrees(angle),
+            edgecolor=colors[regime], 
+            fc='None', lw=2, linestyle='-'
+        ))
+
+
+    SetAxisLimitsBasedOnQuantiles(ax, 'x', returns[assets[0]], (0.005, 0.995))
+    SetAxisLimitsBasedOnQuantiles(ax, 'y', returns[assets[1]], (0.005, 0.995))
+
+    if show_labels:
+        # Creating custom handles for the legend
+        labels = {regime: f'Regime: {regime}' if isinstance(regime, np.int64) else regime for regime in regime_names}
+        handles = [
+            Line2D([0], [0], color=colors[regime], marker='o', linestyle='', label=labels[regime])
+            for regime in regime_names
+        ]
+        title = f'Cluster Analysis: {assets[0]} - {assets[1]}'
+        ax.legend(handles=handles, loc='lower right', ncol=len(regime_names), title=title, fontsize='small')
+        ax.set_xlabel(assets[0], fontsize='small')
+        ax.set_ylabel(assets[1], fontsize='small')
+    else:
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+    ax.grid(True, linestyle='--', alpha=0.8)
+
 
 
 # %% Plot Utility Functions
 
 
-def CleanColors(colorInput='cubehelix', regimes=None):
+def CleanColors(colorInput=None, regimes=None):
     """
     Standardizes color input for plotting. Supports direct color mappings (dict) and colormap names (str).
 
@@ -216,6 +391,9 @@ def CleanColors(colorInput='cubehelix', regimes=None):
     - Using a colormap name with regimes: CleanColors('viridis', mySeries)
     - Using a direct color mapping: CleanColors({'regime1': 'red', 'regime2': 'blue'})
     """
+
+    if colorInput is None:
+        colorInput = 'cubehelix'
 
     if isinstance(colorInput, dict):
         return colorInput
@@ -282,20 +460,11 @@ def ReformatLegendLabels(ax):
     - ax (matplotlib.axes.Axes): The axes object with the legend to be updated.
     """
     legend = ax.get_legend()
-    if legend:
-        new_labels = []
-        for text in legend.get_texts():
-            label = text.get_text()
-            # Check if the label is numeric and prefix with "Regime: " if so
-            if isinstance(4, (float, int, np.int32)) or label.isdigit():
-                new_label = f"Regime: {label}"
-            else:
-                new_label = label
-            new_labels.append(new_label)
-        
-        # Set the new labels to the legend
-        for text, new_label in zip(legend.get_texts(), new_labels):
-            text.set_text(new_label)
+    for text in legend.get_texts():
+        label = text.get_text()
+        regime = label.split()[0]
+        if isinstance(regime, (float, int, np.int32)) or regime.isdigit():
+            text.set_text(f"Regime: {label}")
 
 
 def AddDateDisclaimerToAx(ax, time_series, placement=(0.5, -0.1), fontsize='x-small', dateFormat='%B %d, %Y', disclaimerText='As Of'):
@@ -332,3 +501,9 @@ def AddDateDisclaimerToAx(ax, time_series, placement=(0.5, -0.1), fontsize='x-sm
         horizontalalignment='right', verticalalignment='bottom', 
         fontsize=fontsize, transform=ax.transAxes
     )
+
+# %% Print Docstring
+
+def doc():
+    """Helper function to make module doc string more easily accessable."""
+    print(__doc__)

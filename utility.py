@@ -1,5 +1,5 @@
 """
-Created on Fri Dec 15 20:52:27 2023
+Created on Fri Dec 15 23:16:48 2023
 @author: ryanm
 """
 
@@ -9,7 +9,7 @@ import yfinance as yf
 import pandas_datareader as pdr
 from datetime import date, timedelta
 
-# %% Data Collection
+# %% Data Collection Functions
 
 weekly_macro = {
     'WM2NS': {  # M2 Money Supply
@@ -101,7 +101,36 @@ def getMacro(macro=weekly_macro, freq='M', years=40, end_date=None):
     return data.dropna()
 
 
-# %% Calculations
+# %% Calculation and Helper Functions
+
+
+def alignAndShiftDataFrames(df1, df2, shift_df1=False, periods=1):
+    """
+    Aligns two DataFrames based on their index and optionally shifts one DataFrame, returning 
+    a tuple if shifted, and only the aligned DataFrame if not shifted.
+
+    Parameters:
+    - df1 (pd.DataFrame): The first DataFrame (e.g., returns data).
+    - df2 (pd.DataFrame): The second DataFrame to align with the first (e.g., macro data).
+    - shift_df1 (bool): If True, shifts df1 forward and returns a tuple. Default is False.
+    - periods (int): Number of periods to shift df1. Default is 1.
+
+    Returns:
+    - df1, df2 (tuple): Two origional dataframes aligned by their index
+    - df1, df2, last_row (tuple): The final row od df1 is added to returning tuple
+    """
+
+    # If no shifting is needed, the function is more simple.
+    if shift_df1 is False:
+        return df1.align(df2, join='inner', axis=0)
+
+    # If shift is true, collect the last datapoint then shift
+    last_row = df1.tail(1)
+    df1 = df1.shift(periods)
+
+    # Then return the aligned dataframes
+    df1, df2 = df1.align(df2, join='inner', axis=0)
+    return df1, df2, last_row
 
 
 def CalculateReturnStatistics(returns):

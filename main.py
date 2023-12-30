@@ -4,24 +4,22 @@ Created on Fri Dec 15 20:38:54 2023
 @author: Ryan Milgrim, CFA
 """
 
-import utility
 import numpy as np
 import pandas as pd
 
 from statsmodels.tools import add_constant
 from statsmodels.discrete.discrete_model import MNLogit
 
-from scipy.stats import norm
 from sklearn.mixture import BayesianGaussianMixture
 from sklearn.covariance import EmpiricalCovariance
 from sklearn.preprocessing import RobustScaler
 
 
-from matplotlib.lines import Line2D
-from matplotlib.patches import Ellipse
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
+
+import utility, plots
 
 
 # %% Download data and setup variables
@@ -31,13 +29,8 @@ freq = 'W'
 
 macro = utility.getMacro(freq=freq, years=years)
 returns = utility.getReturns(years=years, freq=freq)
+macro_shift, returns_shift = utility.alignAndShiftDataFrames(macro, returns)
 
-end = min(max(macro.index), max(returns.index))
-start = max(min(macro.index), min(returns.index))
-
-final_return = returns.tail(1)
-returns = returns[start:end]
-macro = macro[start:end]
 
 
 # %% Classify history
@@ -92,111 +85,7 @@ def classify_market_regimes(returns, n_components=3, n_init=100, outlier_cutoff=
     return gmm, regimes, means, covs, weights
 
 
-gmm, gmm_regimes, gmm_means, gmm_covs, gmm_weights = classify_market_regimes(returns)
-
-
-# %% Defining Plot Functions
-
-
-def plotRegimeClusters(returns, regimes, regime_means, regime_covs, assets, colors):
-    """
-    Creates a scatter plot with regime clusters overlayed for a pair of assets.
-    
-    Parameters:
-    - returns: DataFrame containing return data for assets.
-    - regimes: Series indicating the regime for each data point.
-    - regime_means: DataFrame of mean vectors for each regime.
-    - regime_covs: Dictionary of covariance matrices for each regime.
-    - assets: List of two asset names to be plotted.
-    - colors: Series of colors for each regime.
-    """
-    if len(assets) != 2:
-        raise ValueError("Assets parameter must be a list of two asset names.")
-
-    fig, ax = plt.subplots()
-    regime_names = np.unique(regimes)
-
-    # Plot an Ellipsoide over each Regime's individual multivariate normal pdf and its scatterplot.
-    for regime in regime_names:
-        label_data = returns[regimes == regime][assets]
-        ax.scatter(label_data[assets[0]], label_data[assets[1]], color=colors[regime], s=2)
-
-        # Calculating the multivariate pdf
-        cov_matrix = regime_covs[regime].loc[assets, assets].values
-        mean_vector = regime_means[regime][assets].values
-        eigenvalues, eigenvectors = np.linalg.eig(cov_matrix)
-        angle = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
-        width, height = 2 * np.sqrt(eigenvalues)
-
-        # Plotting the Ellipse
-        ax.add_patch(
-            Ellipse(
-                xy=mean_vector, 
-                width=width, 
-                height=height, 
-                angle=np.degrees(angle), 
-                edgecolor=colors[regime], 
-                fc='None', 
-                lw=2, 
-                linestyle='-'
-            )
-        )
-
-    # Creating the legend
-    ax.legend(
-        handles=[Line2D([0], [0], color=colors[regime], label=f'Regime: {regime}') for regime in regime_names],
-        loc='upper center', 
-        bbox_to_anchor=(0.5, -0.15), 
-        ncol=len(regime_names), 
-        frameon=True, 
-        fontsize='small'
-    )
-
-    # Additional plotting
-    ax.set_title(f'Cluster Analysis: {assets[0]} - {assets[1]}')
-    plt.grid(True, linestyle='--', alpha=0.5)
-    ax.set_xlabel(assets[0], fontsize='small')
-    ax.set_ylabel(assets[1], fontsize='small')    
-    SetAxisLimitsBasedOnQuantiles(ax, 'x', returns[assets[0]], (0.005, 0.995))
-    SetAxisLimitsBasedOnQuantiles(ax, 'y', returns[assets[1]], (0.005, 0.995))
-    ax.xaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=0))
-    ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0, decimals=0))
-    add_date_disclaimer(fig, returns, (0.98, -0.10))
-    plt.show()
-    
-
-def plotRegimeAnalysis(asset, weights, returns, regimes, regime_means, regime_covs, colors='viridis', plots=0):
-    """
-    Plots a series of charts for regime analysis of financial assets. Depending on the 'plots' parameter,
-    the function generates either density and violin plots for each asset or scatter plots comparing 
-    the specified asset against others.
-
-    Parameters:
-    - asset (str): The name of the primary asset for comparison in scatter plots.
-    - weights (pd.Series): Weights of each regime.
-    - returns (pd.DataFrame): DataFrame of asset returns.
-    - regimes (pd.Series): Series indicating the regime for each data point.
-    - regime_means (pd.DataFrame): Mean returns for each regime.
-    - regime_covs (dict): Covariance matrices for each regime.
-    - colors (str or dict): A Matplotlib colormap name or a dictionary mapping regimes to colors. Defaults to 'viridis'.
-    - plots (int): Determines the type of plots to generate. 
-                   0 for PDF and violin plots for each asset, 1 for scatter plots against the specified asset.
-
-    Raises:
-    - ValueError: If 'plots' parameter is not 0 or 1.
-    """
-    colors = CleanColors(colors, regimes)
-
-    if plots == 0:
-        for asset in returns.columns:
-            plotPdf(asset, weights, returns, regime_means, regime_covs, colors)
-            plotRegimeViolins(returns, asset, regimes, colors)
-    elif plots == 1:
-        for x_asset in returns.drop(columns=asset).columns:
-            plotRegimeClusters(returns, regimes, regime_means, regime_covs, [x_asset, asset], colors)
-    else:
-        raise ValueError("Invalid value for 'plots'. Use 0 for PDF and violin plots, 1 for scatter plots.")
-
+gmm, regimes, regime_means, regime_covs, weights = classify_market_regimes(returns)
 
 
 # %% Plot Function
