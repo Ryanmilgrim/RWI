@@ -29,7 +29,7 @@ freq = 'W'
 
 macro = utility.getMacro(freq=freq, years=years)
 returns = utility.getReturns(years=years, freq=freq)
-macro_shift, returns_shift = utility.alignAndShiftDataFrames(macro, returns)
+macro, returns = utility.alignAndShiftDataFrames(macro, returns)
 
 
 
