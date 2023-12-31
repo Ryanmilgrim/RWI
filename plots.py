@@ -27,7 +27,7 @@ Please call help() on individual functions for parameter details.
 import numpy as np
 import pandas as pd
 
-from scipy.stats import norm
+import scipy.stats as stats
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.gridspec as gridspec
@@ -93,7 +93,7 @@ def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colo
 
         ax_violin = fig.add_subplot(gs[0, 0])
         ax_table = fig.add_subplot(gs[1, 0])
-        ax_pdf = fig.add_subplot(gs[:, 1])
+        ax_qq = fig.add_subplot(gs[:, 1])
 
         # Plot the violin plot
         plotRegimeViolins(ax_violin, returns, asset, regimes, colors)
@@ -102,9 +102,9 @@ def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colo
         plotRegimeStatsTable(ax_table, returns, asset, regimes)
 
         # Plot the PDF plot
-        PlotPdf(ax_pdf, asset, weights, returns, regime_means, regime_covs, colors)
+        plotRegimeQQPlots(ax_qq, returns, asset, regimes, colors)
 
-        AddDateDisclaimerToAx(ax_pdf, returns,placement=(0.98, -0.08))
+        AddDateDisclaimerToAx(ax_qq, returns,placement=(0.98, -0.08))
         
         plt.tight_layout()
         plt.suptitle(f'{asset} - Returns by Regime', fontsize=20, y=1.03)
@@ -195,7 +195,7 @@ def PlotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=10
     for regime in regime_names:
         mu = regime_means[regime][asset]
         sigma = np.sqrt(regime_covs[regime].loc[asset, asset])
-        component_pdf = norm.pdf(x, mu, sigma)
+        component_pdf = stats.norm.pdf(x, mu, sigma)
         ax.plot(x, component_pdf, color=colors[regime], linewidth=2)
         
         # Add the weighted component to the total mixture
@@ -369,8 +369,77 @@ def plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, assets, 
     ax.grid(True, linestyle='--', alpha=0.8)
 
 
+def plotRegimeQQPlots(ax, returns, asset, regimes, colors, n=1000):
+    """
+    Plots QQ lines for each regime of a specified asset, along with the full history.
+
+    Parameters:
+    - ax (matplotlib.axes.Axes): Axes object for plotting.
+    - returns (pd.DataFrame): DataFrame containing returns for multiple assets.
+    - asset (str): The specific asset to plot.
+    - regimes (pd.Series): Series indicating the regime for each data point.
+    - colors (dict): Dictionary mapping regime names to color values.
+    - distribution (str): The distribution to use for comparison. Default is 'norm'.
+    - n (int): Number of points for the QQ plot. Default is 1000.
+    """
+    extreme_x_values = []
+    extreme_y_values = []
+
+    # Plot for each regime
+    for regime in regimes.unique():
+        regime_rets = returns[asset][regimes == regime]
+        qq_line = MakeQQLine(regime_rets, n)
+        ax.scatter(qq_line.index, qq_line.values, label=regime, color=colors[regime], s=5)
+        extreme_x_values.extend([qq_line.index.min(), qq_line.index.max()])
+        extreme_y_values.extend([qq_line.values.min(), qq_line.values.max()])
+
+    # Plot for full history
+    full_hist = MakeQQLine(returns[asset], n)
+    ax.scatter(full_hist.index, full_hist.values, label='Full History', s=10)
+    extreme_x_values.extend([full_hist.index.min(), full_hist.index.max()])
+    extreme_y_values.extend([full_hist.values.min(), full_hist.values.max()])
+
+    # Set axis limits based on extreme values
+    ax.set_xlim(min(extreme_x_values), max(extreme_x_values))
+    ax.set_ylim(min(extreme_y_values), max(extreme_y_values))
+
+    # Adding a 45-degree reference line
+    max_limit = max(ax.get_xlim()[1], ax.get_ylim()[1])
+    ax.plot([-max_limit, max_limit], [-max_limit, max_limit], color='red', linestyle='--')
+
+    # Reformating legend labels
+    ax.legend(loc='upper left')
+    ReformatLegendLabels(ax)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.set_title(f"QQ Plots for {asset} Across Regimes")
+    ax.set_xlabel("Theoretical Quantiles")
+    ax.set_ylabel("Sample Quantiles")
+
+
 
 # %% Plot Utility Functions
+
+
+def MakeQQLine(rets,  n=1000):
+    """
+    Create a qq line relative to a normal distribution. 
+    
+    Parameters:
+     - rets (pd.Series): a Pandas Series of a single asset's historical returns
+     - n (int): The number of points to create for the qqplot.
+
+    Returns:
+     - qq (pd.Series): A series representing the line to be drawn on a qqplot. 
+    """
+   
+    points = np.linspace(0, 1, len(rets))
+    standard_rets = (rets - rets.mean()) / rets.std()
+    sample_quantiles = standard_rets.quantile(points)
+
+    theoritical_quantiles = stats.norm.ppf((np.arange(len(rets)) + 0.5) / len(rets))
+
+    sample_quantiles.index = theoritical_quantiles
+    return sample_quantiles
 
 
 def CleanColors(colorInput=None, regimes=None):
