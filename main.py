@@ -9,9 +9,6 @@ import pandas as pd
 
 from statsmodels.tools import add_constant
 from statsmodels.discrete.discrete_model import MNLogit
-
-from sklearn.mixture import BayesianGaussianMixture
-from sklearn.covariance import EmpiricalCovariance
 from sklearn.preprocessing import RobustScaler
 
 
@@ -19,7 +16,8 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 
-import utility, plots
+import utility
+from stem import GMM
 
 
 # %% Download data and setup variables
@@ -35,84 +33,12 @@ macro, returns = utility.alignAndShiftDataFrames(macro, returns)
 
 # %% Classify history
 
-def classify_market_regimes(returns, n_components=3, n_init=100, outlier_cutoff=0.002):
-    """
-    Classifies historical asset returns into market regimes using Bayesian Gaussian Mixture Models.
+# Assuming 'returns' is your DataFrame of asset returns
+gmm = GMM(returns, n_components=3, n_init=100, inlier_pct=1.0)
 
-    The function fits an Empirical Covariance model to identify and exclude outliers before fitting
-    a Bayesian Gaussian Mixture Model to the filtered returns. It returns the fitted model along
-    with the identified regimes, their means, covariance matrices, and the model's component weights.
-
-    Parameters:
-    - returns (pd.DataFrame): A DataFrame of historical return data for assets.
-    - n_components (int): The number of mixture components (regimes) to identify. Default is 3.
-    - n_init (int): The number of initializations to perform for the clustering algorithm. Default is 100.
-    - outlier_cutoff (float): The percentage of the largest Mahalanobis distances to consider as outliers. Default is 0.015.
-
-    Returns:
-    - gmm (BayesianGaussianMixture): The fitted Bayesian Gaussian Mixture model.
-    - regimes (pd.Series): A Series mapping each time period to a regime.
-    - means (pd.DataFrame): A DataFrame where each column represents the mean returns of a regime.
-    - covs (dict of pd.DataFrame): A dictionary mapping each regime to its covariance matrix.
-    - weights (pd.Series): A Series representing the weight of each regime in the mixture model.
-
-    Example:
-    gmm, regimes, means, covs, weights = classify_market_regimes(returns)
-    """
-
-    # Fit an Empirical Covariance model to find outliers
-    cov_model = EmpiricalCovariance().fit(returns)
-    outlier_scores = pd.Series(cov_model.mahalanobis(returns), index=returns.index)
-    outlier_threshold = int(len(returns) * outlier_cutoff)
-    outliers = outlier_scores.nlargest(outlier_threshold).index
-    filtered_returns = returns.drop(outliers)
-
-    # Fit a Bayesian Gaussian Mixture Model to the filtered data
-    gmm = BayesianGaussianMixture(n_components=n_components, n_init=n_init, init_params='random_from_data')
-    gmm.fit(filtered_returns)
-
-    # Classify each period's returns into regimes
-    regimes = pd.Series(gmm.predict(returns), index=returns.index, name='Regimes')
-
-    # Extract the regime means and covariance matrices
-    means = pd.DataFrame({regime: gmm.means_[regime] for regime in range(n_components)}, index=returns.columns)
-    covs = {regime: pd.DataFrame(gmm.covariances_[regime], index=returns.columns, columns=returns.columns)
-            for regime in range(n_components)}
-
-    # Record the weight of each regime in the model
-    weights = pd.Series(gmm.weights_, index=range(n_components), name='Weights')
-
-    return gmm, regimes, means, covs, weights
-
-
-gmm, regimes, regime_means, regime_covs, weights = classify_market_regimes(returns)
-
-
-# %% Plot Function
-
-
-plotRegimeAnalysis(
-    asset='SPY',
-    weights=gmm_weights,
-    returns=returns,
-    regimes=gmm_regimes,
-    regime_means=gmm_means,
-    regime_covs=gmm_covs,
-    colors='twilight',
-    plots=0
-    )
-
-
-plotRegimeAnalysis(
-    asset='SPY',
-    weights=gmm_weights,
-    returns=returns,
-    regimes=gmm_regimes,
-    regime_means=gmm_means,
-    regime_covs=gmm_covs,
-    colors='twilight',
-    plots=1
-    )
+gmm.plotReturns()
+gmm.plotScorecards()
+gmm.plotCorr()
 
 
 # %% Fit Logit Model

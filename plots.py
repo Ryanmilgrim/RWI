@@ -5,25 +5,26 @@ Created on Sat Dec 16 01:57:12 2023
 
 Plots Module for Financial Data Visualization
 
-- plotAllAssetsPdf:
-    Generates a grid of subplots, each displaying the probability density function (PDF)
-    for an individual asset in the 'returns' DataFrame. It visualizes the return distributions by regime
-    for all assets using a Gaussian Mixture Model.
-
-- plotAssetAnalysis:
-    Creates a comprehensive plot for each specified asset. This function combines a
-    violin plot, a statistics table, and a QQ plot, providing an in-depth analysis of each asset's
-    performance in within Regimes.
-
-- plotRegimeMatrix:
-    Constructs an NxN correlation matrix plot for asset comparisons under different
-    market Regimes. Each off-diagonal cell represents a cluster plot for a pair of assets, and the
-    diagonal cells show the PDF for each individual asset.
-
-- plotAllRegimesAssetViolins:
-    Displays violin plots for all assets within each market regime. This function
-    creates a series of subplots, each dedicated to a specific regime, showcasing the distribution of
-    returns for all assets in that regime.
+- Classifications
+    - plotPdfAxs:
+        Generates a grid of subplots, each displaying the probability density function (PDF)
+        for an individual asset in the 'returns' DataFrame. It visualizes the return distributions by regime
+        for all assets using a Gaussian Mixture Model.
+    
+    - plotScorecards:
+        Creates a comprehensive plot for each specified asset. This function combines a
+        violin plot, a statistics table, and a QQ plot, providing an in-depth analysis of each asset's
+        performance in within Regimes.
+    
+    - plotCorr:
+        Constructs an NxN correlation matrix plot for asset comparisons under different
+        market Regimes. Each off-diagonal cell represents a cluster plot for a pair of assets, and the
+        diagonal cells show the PDF for each individual asset.
+    
+    - plotReturns:
+        Displays violin plots for all assets within each market regime. This function
+        creates a series of subplots, each dedicated to a specific regime, showcasing the distribution of
+        returns for all assets in that regime.
 
 These functions are designed for visualizing the analysis of the main file. 
 Please call help() on individual functions for parameter details.
@@ -47,7 +48,7 @@ import utility
 # %% Main Plot Functions
 
 
-def plotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors=None, n=1000):
+def plotPdfs(returns, weights, regime_means, regime_covs, colors=None, n=1000):
     """
     Plots the probability density functions for all assets in the returns DataFrame.
 
@@ -70,7 +71,7 @@ def plotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors=None, n
 
     for i, asset in enumerate(returns.columns):
         ax = axs[i // num_cols, i % num_cols] if num_assets > 1 else axs
-        plotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n)
+        plotPdfAx(ax, asset, weights, returns, regime_means, regime_covs, colors, n)
 
         # Hide axes for empty subplots if the number of assets is not a perfect square
     for j in range(num_assets, num_rows * num_cols):
@@ -80,7 +81,7 @@ def plotAllAssetsPdf(returns, weights, regime_means, regime_covs, colors=None, n
     plt.show()
 
 
-def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colors=None):
+def plotScorecards(returns, weights, regime_means, regime_covs, regimes, colors=None):
     """
     Creates a combined plot for each asset including a violin plot, a stats table, and a PDF plot.
 
@@ -102,13 +103,13 @@ def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colo
         ax_qq = fig.add_subplot(gs[:, 1])
 
         # Plot the violin plot
-        plotRegimeViolins(ax_violin, returns, asset, regimes, colors)
+        plotViolinRegimeAx(ax_violin, returns, asset, regimes, colors)
 
         # Plot the stats table
-        plotRegimeStatsTable(ax_table, returns, asset, regimes)
+        plotStatsTableAx(ax_table, returns, asset, regimes)
 
         # Plot the PDF plot
-        plotRegimeQQPlots(ax_qq, returns, asset, regimes, colors)
+        plotQQAx(ax_qq, returns, asset, regimes, colors)
 
         addDateDisclaimerToAx(ax_qq, returns,placement=(0.98, -0.08))
         
@@ -118,7 +119,7 @@ def plotAssetAnalysis(returns, weights, regime_means, regime_covs, regimes, colo
         plt.show()
 
 
-def plotRegimeMatrix(returns, regimes, weights, regime_means, regime_covs, colors=None, assets=None):
+def plotCorr(returns, regimes, weights, regime_means, regime_covs, colors=None, assets=None):
     """
     Creates an NxB correlation matrix by regime. Each cell in the grid represents a cluster plot for a pair of assets,
     and the diagonal cells show the PDF plot for each asset.
@@ -143,10 +144,10 @@ def plotRegimeMatrix(returns, regimes, weights, regime_means, regime_covs, color
             ax = axs[i, j]
             if i == j:
                 # Diagonal - Plot PDF
-                plotPdf(ax, assets[i], weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=False)
+                plotPdfAx(ax, assets[i], weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=False)
             else:
                 # Off-diagonal - Plot regime clusters
-                plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, [assets[i], assets[j]], colors, show_labels=False)
+                plotScatterAx(ax, returns, regimes, regime_means, regime_covs, [assets[i], assets[j]], colors, show_labels=False)
 
             if j == 0:
                 ax.set_ylabel(assets[i], fontsize=30)
@@ -168,7 +169,7 @@ def plotRegimeMatrix(returns, regimes, weights, regime_means, regime_covs, color
     plt.show()
 
 
-def plotAllRegimesAssetViolins(returns, regimes, colors, figsize=(12, 8)):
+def plotReturns(returns, regimes, colors=None, figsize=(12, 8)):
     """
     Creates a plot for each regime, displaying violin plots for all assets in that regime.
 
@@ -178,7 +179,7 @@ def plotAllRegimesAssetViolins(returns, regimes, colors, figsize=(12, 8)):
     - colors (dict): Dictionary mapping regime names to color values.
     - figsize (tuple): Figure size. Default is (12, 8).
     """
-
+    colors = cleanColors(colors, regimes)
     unique_regimes = regimes.unique()
     num_regimes = len(unique_regimes)
     fig, axs = plt.subplots(1, num_regimes, figsize=figsize)
@@ -187,7 +188,7 @@ def plotAllRegimesAssetViolins(returns, regimes, colors, figsize=(12, 8)):
         axs = [axs]
 
     for ax, regime in zip(axs, unique_regimes):
-        plotAssetViolins(ax, returns, regime, regimes, colors)
+        plotViolinsAssetAx(ax, returns, regime, regimes, colors)
         title = f'Regime: {regime}' if not isinstance(regime, str) else regime
         ax.set_title(title, fontsize=16)
 
@@ -201,7 +202,7 @@ def plotAllRegimesAssetViolins(returns, regimes, colors, figsize=(12, 8)):
 # %% Ax Plot Functions
 
 
-def plotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=True):
+def plotPdfAx(ax, asset, weights, returns, regime_means, regime_covs, colors, n=1000, show_labels=True):
     """
     Visualizes the distribution of an asset's returns using a histogram and Gaussian Mixture Model (GMM).
 
@@ -257,7 +258,7 @@ def plotPdf(ax, asset, weights, returns, regime_means, regime_covs, colors, n=10
 
 
 
-def plotRegimeViolins(ax, returns, asset, regimes, colors):
+def plotViolinRegimeAx(ax, returns, asset, regimes, colors):
     """
     Plots the returns distribution for a specified asset across different market regimes using a violin plot,
     including the full historical data as a reference. The mean of each distribution is marked with a point.
@@ -304,7 +305,7 @@ def plotRegimeViolins(ax, returns, asset, regimes, colors):
     ax.grid(True, linestyle='--', alpha=0.7)
 
 
-def plotRegimeStatsTable(ax, returns, asset, regimes):
+def plotStatsTableAx(ax, returns, asset, regimes):
     """
     Displays a statistics table for a specified asset's returns across different market regimes.
 
@@ -345,7 +346,7 @@ def plotRegimeStatsTable(ax, returns, asset, regimes):
     table.scale(0.95, 3)
 
 
-def plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, assets, colors, show_labels=True):
+def plotScatterAx(ax, returns, regimes, regime_means, regime_covs, assets, colors, show_labels=True):
     """
     Creates a scatter plot with regime clusters overlaid for a pair of assets on a given axis.
 
@@ -404,7 +405,7 @@ def plotRegimeClusters(ax, returns, regimes, regime_means, regime_covs, assets, 
     ax.grid(True, linestyle='--', alpha=0.8)
 
 
-def plotRegimeQQPlots(ax, returns, asset, regimes, colors, n=1000):
+def plotQQAx(ax, returns, asset, regimes, colors, n=1000):
     """
     Plots QQ lines for each regime of a specified asset, along with the full history.
 
@@ -451,7 +452,7 @@ def plotRegimeQQPlots(ax, returns, asset, regimes, colors, n=1000):
     ax.set_ylabel("Sample Quantiles")
 
 
-def plotAssetViolins(ax, returns, regime, regimes, colors):
+def plotViolinsAssetAx(ax, returns, regime, regimes, colors):
     """
     Plots the returns distribution for each asset within a specified regime using violin plots.
 

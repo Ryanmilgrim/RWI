@@ -1,6 +1,7 @@
 """
 Created on Fri Dec 15 23:16:48 2023
-@author: ryanm
+
+@author: Ryan Milgrim, CFA
 """
 
 import numpy as np
