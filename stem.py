@@ -5,8 +5,11 @@ Created on Sat Dec 16 01:05:31 2023
 """
 
 import plots
+import numpy as np
 import pandas as pd
+
 from sklearn.cluster import HDBSCAN
+from sklearn.preprocessing import RobustScaler
 from sklearn.mixture import BayesianGaussianMixture
 from sklearn.covariance import EmpiricalCovariance
 
@@ -40,20 +43,11 @@ class Classification(Stem):
         self.fit(), self.assign()
 
     def assign(self):
-        self.means = None
-        self.covs = None
-        self.weights = None
+        regime_returns = {regime: self.returns[self.regimes == regime] for regime in self.regime_names}
+        self.means = pd.DataFrame({regime: regime_returns[regime].mean() for regime in self.regime_names}, index=self.returns.columns)
+        self.covs = {regime: regime_returns[regime].cov() for regime in self.regime_names}
+        self.weights = pd.Series({regime: len(regime_returns[regime]) / len(self.returns) for regime in self.regime_names})
 
-    def determineOutliers(self):
-        if not isinstance(self.inlier_pct, float):
-            raise ValueError(f'Inlier Percent must be a float, not {type(self.inlier_pct)}')
-        
-        if self.inlier_pct < 0 or self.inlier_pct > 1:
-            raise ValueError(f'Inlier Percent must be between 0 and 1, not {self.inlier_pct}')
-
-        cov_model = EmpiricalCovariance().fit(self.returns)
-        outlier_scores = pd.Series(cov_model.mahalanobis(self.returns), index=self.returns.index)
-        self.inliers = outlier_scores < outlier_scores.quantile(self.inlier_pct)
 
     def plotPdfs(self, colors=None, n=1000):
         """
@@ -63,7 +57,7 @@ class Classification(Stem):
         - colors (dict or str, optional): Dictionary of colors for each regime or a colormap string.
         - n (int): Number of points for the PDF plot. Default is 1000.
         """
-        plots.plotPdfs(self.returns, self.regime_weights, self.means, self.covs, colors, n)
+        plots.plotPdfs(self.returns, self.weights, self.means, self.covs, colors, n)
 
     def plotReturns(self, colors=None, figsize=(12, 8)):
         """
@@ -83,7 +77,7 @@ class Classification(Stem):
         Parameters:
         - colors (dict or str, optional): Dictionary of colors for each regime or a colormap string.
         """
-        plots.plotScorecards(self.returns, self.regime_weights, self.means, self.covs, self.regimes, colors)
+        plots.plotScorecards(self.returns, self.weights, self.means, self.covs, self.regimes, colors)
 
     def plotCorr(self, colors=None, assets=None):
         """
@@ -94,7 +88,7 @@ class Classification(Stem):
         - colors (dict or str, optional): Dictionary of colors for each regime or a colormap string.
         - assets (list, optional): List of asset names to be analyzed.
         """
-        plots.plotCorr(self.returns, self.regimes, self.regime_weights, self.means, self.covs, colors, assets)
+        plots.plotCorr(self.returns, self.regimes, self.weights, self.means, self.covs, colors, assets)
 
 
 class GMM(Classification):
@@ -113,25 +107,31 @@ class GMM(Classification):
         assign: Extracts regime characteristics such as means, covariances, and weights.
     """
 
-    def __init__(self, returns, n_components=3, n_init=100, inlier_pct=0.99):
+    def __init__(self, returns, n_components=3, n_init=100, covariance_type='full'):
         self.n_components = n_components
         self.n_init = n_init
-        super().__init__(returns, inlier_pct)
+        self.covariance_type = covariance_type
+        super().__init__(returns)
 
     def fit(self):
-        self.determineOutliers()
 
-        gmm = BayesianGaussianMixture(n_components=self.n_components, n_init=self.n_init, init_params='random_from_data')
-        self.gmm = gmm.fit(self.returns[self.inliers])
+        gmm = BayesianGaussianMixture(
+            n_components=self.n_components,
+            n_init=self.n_init,
+            covariance_type=self.covariance_type,
+            init_params='random_from_data'
+        )
+        self.gmm = gmm.fit(self.returns)
         self.regimes = pd.Series(gmm.predict(self.returns), index=self.returns.index, name='Regimes')
+        self.regime_names = np.sort(self.regimes.unique())
 
-    def assign(self):
-        self.means = pd.DataFrame({regime: self.gmm.means_[regime] for regime in range(self.gmm.n_components)}, index=self.returns.columns)
-        self.covs = {
-            regime: pd.DataFrame(self.gmm.covariances_[regime], index=self.returns.columns, columns=self.returns.columns)
-            for regime in range(self.gmm.n_components)
-        }
-        self.regime_weights = pd.Series(self.gmm.weights_, index=range(self.gmm.n_components), name='Weights')
+    # def assign(self):
+    #     self.means = pd.DataFrame({regime: self.gmm.means_[regime] for regime in range(self.gmm.n_components)}, index=self.returns.columns)
+    #     self.covs = {
+    #         regime: pd.DataFrame(self.gmm.covariances_[regime], index=self.returns.columns, columns=self.returns.columns)
+    #         for regime in range(self.gmm.n_components)
+    #     }
+    #     self.weights = pd.Series(self.gmm.weights_, index=range(self.gmm.n_components), name='Weights')
 
 
 class HDBScan(Classification):
@@ -148,12 +148,13 @@ class HDBScan(Classification):
     """
 
     def __init__(self, returns, min_cluster_size):
-        self.min_cluster_size
+        self.min_cluster_size = min_cluster_size
         super().__init__(returns)
 
     def fit(self):
-        dbscan = HDBSCAN(returns, min_cluster_size)
-        self.dbscan = gmm.fit(self.returns)
-        self.regimes = pd.Series(dbscan.predict(self.returns), index=self.returns.index, name='Regimes')
+        self.dbscan = HDBSCAN(self.min_cluster_size)
+        self.regimes = self.dbscan.fit_predict(self.returns)
+        self.regimes = pd.Series(self.regimes, index=self.returns.index, name='Regimes')
+        self.regime_names = np.unique(self.dbscan.labels_)
     
     

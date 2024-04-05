@@ -17,7 +17,6 @@ import matplotlib.dates as mdates
 import matplotlib.ticker as mticker
 
 import utility
-from stem import GMM, HDBScan
 
 
 # %% Download data and setup variables
@@ -33,7 +32,9 @@ macro, returns = utility.alignAndShiftDataFrames(macro, returns)
 
 # %% Classify history
 
-gmm = GMM(returns, n_components=3)
+from stem import GMM, HDBScan
+
+gmm = GMM(returns, n_components=5, covariance_type='diag')
 
 gmm.plotReturns()
 gmm.plotScorecards()

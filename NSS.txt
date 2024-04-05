@@ -1,0 +1,88 @@
+import numpy as np
+import pandas as pd
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
+from itertools import product
+import time
+
+# Generate synthetic data for 30 years of weekly yields
+np.random.seed(42) # for reproducibility
+weeks_per_year = 52
+total_weeks = 30 * weeks_per_year
+maturities = np.array([1, 2, 5, 10, 20, 30]) # example maturities in years
+synthetic_yields = np.random.rand(total_weeks, len(maturities)) * 0.05 + np.linspace(0.01, 0.03, total_weeks).reshape(-1, 1)
+
+# Dummy implementation of the Nelson-Siegel-Svensson function
+# This is usually more complex and involves specific parameters to model the yield curve
+def nelson_siegel_svensson(maturities, beta, tau1, tau2):
+    return beta[0] + beta[1] * np.exp(-maturities/tau1) + beta[2] * (maturities/tau1) * np.exp(-maturities/tau1) + beta[3] * np.exp(-maturities/tau2)
+
+# Function to estimate the NSS parameters and perform grid search for tau1 and tau2
+def estimate_nss_parameters(yields, maturities, tau1_range, tau2_range, alpha=0.001):
+    best_score = np.inf
+    best_params = None
+    best_taus = None
+    
+    # Grid search over tau ranges
+    for tau1, tau2 in product(tau1_range, tau2_range):
+        # Assume some initial values for beta parameters
+        beta_initial = np.random.rand(4)
+        # Use Ridge Regression to find the best betas for given taus
+        # This is a simplified version and would require modification to properly fit the NSS model
+        ridge_model = Ridge(alpha=alpha, fit_intercept=False)
+        # Generate features based on current tau1, tau2
+        X = np.column_stack([np.ones(len(maturities)), np.exp(-maturities/tau1), (maturities/tau1)*np.exp(-maturities/tau1), np.exp(-maturities/tau2)])
+        ridge_model.fit(X, yields.T)
+        predicted_yields = ridge_model.predict(X)
+        score = mean_squared_error(yields.T, predicted_yields)
+        
+        if score < best_score:
+            best_score = score
+            best_params = ridge_model.coef_
+            best_taus = (tau1, tau2)
+    
+    return best_params, best_taus, best_score
+
+# Speed test on a single week's data for demonstration
+tau1_range = np.linspace(0.2, 2.0, 10) # Example tau1 range
+tau2_range = np.linspace(2.0, 20, 10) # Example tau2 range
+
+start_time = time.time()
+best_params, best_taus, best_score = estimate_nss_parameters(synthetic_yields[0], maturities, tau1_range, tau2_range)
+elapsed_time = time.time() - start_time
+
+best_params, best_taus, best_score, elapsed_time
+
+import matplotlib.pyplot as plt
+
+# Given the optimal parameters and taus, let's plot the synthetic yields and the best fitting NSS model curve
+
+def plot_nss_fit(maturities, yields, best_params, best_taus):
+    plt.figure()
+
+    # Plot synthetic yields as red 'x'
+    plt.plot(maturities, yields, 'rx', label='Synthetic Yields', markersize=8)
+
+    # Plot NSS model curve for the best parameters
+    maturities_fine = np.linspace(min(maturities), max(maturities), 100)
+    best_yields = nelson_siegel_svensson(maturities_fine, best_params, best_taus[0], best_taus[1])
+    plt.plot(maturities_fine, best_yields, label='Best NSS Model', color='green', linewidth=2)
+
+    # Plot failed models (less visible)
+    for tau1, tau2 in product(tau1_range, tau2_range):
+        if (tau1, tau2) != best_taus:
+            failed_params, _, _ = estimate_nss_parameters(yields, maturities, [tau1], [tau2])
+            failed_yields = nelson_siegel_svensson(maturities_fine, failed_params, tau1, tau2)
+            plt.plot(maturities_fine, failed_yields, color='grey', alpha=0.1)  # Less visible
+
+    plt.title('Fit of Nelson-Siegel-Svensson Model to Synthetic Yields')
+    plt.xlabel('Maturities (Years)')
+    plt.ylabel('Yields')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.ylim((0, 0.07))
+    
+    
+    plt.legend()
+    plt.show()
+
+plot_nss_fit(maturities, synthetic_yields[0], best_params, best_taus)
